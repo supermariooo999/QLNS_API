@@ -1,0 +1,227 @@
+📋 Coding Convention - Dự án QLNS_API
+
+1. Response Format (Dùng trait ApiResponse)
+php
+use App\Traits\ApiResponse;
+
+class YourController extends Controller
+{
+    use ApiResponse;
+    
+    // Success response
+    $this->success($data, 'Message', 200, ['extra' => 'meta']);
+    
+    // Error response  
+    $this->error('Message', 400, $errors, ['extra' => 'meta']);
+    
+    // Paginated response
+    $this->paginated($paginator, 'Message');
+}
+
+2. Controller Structure
+php
+public function index(Request $request)
+{
+    try {
+        // Query builder
+        $query = Model::query();
+        
+        // Filter
+        if ($request->has('search')) {
+            $query->where('field', 'like', "%{$request->search}%");
+        }
+        
+        // Sort
+        $sortField = $request->get('sort_by', 'default_field');
+        $sortDirection = $request->get('sort_direction', 'asc');
+        $query->orderBy($sortField, $sortDirection);
+        
+        // Paginate or get
+        $perPage = $request->get('per_page', 15);
+        $data = $query->paginate($perPage);
+        
+        return $this->paginated($data, 'Success message');
+        
+    } catch (\Exception $e) {
+        return $this->error(
+            message: 'Error message',
+            code: 500,
+            errors: config('app.debug') ? $e->getMessage() : null
+        );
+    }
+}
+
+3. Model Naming & Structure
+Table name: ten_bang (snake_case, tiếng Việt không dấu)
+
+Primary key: id (bigint, auto increment)
+
+Timestamps: Chỉ dùng created_at, không có updated_at ở một số bảng
+
+Soft deletes: Có field deleted_at riêng hoặc dùng id_trang_thai
+
+php
+class TenModel extends Model
+{
+    use HasFactory;
+    
+    public $timestamps = false; // Nếu bảng không có updated_at
+    
+    protected $table = 'ten_bang';
+    
+    protected $fillable = ['field1', 'field2'];
+    
+    protected $casts = [
+        'la_quan_ly' => 'boolean',
+        'thu_tu_cap' => 'integer',
+    ];
+    
+    // Scopes
+    public function scopeTenScope($query)
+    {
+        return $query->where(...);
+    }
+    
+    // Relationships
+    public function relatedModel()
+    {
+        return $this->hasMany(Related::class, 'foreign_key');
+    }
+}
+
+4. Request Validation
+php
+class StoreRequest extends FormRequest
+{
+    public function authorize(): bool { return true; }
+    
+    public function rules(): array
+    {
+        return [
+            'field' => 'required|string|max:255|unique:table,field',
+            'nullable_field' => 'nullable|integer|min:1',
+            'boolean_field' => 'nullable|boolean'
+        ];
+    }
+    
+    public function messages(): array
+    {
+        return [
+            'field.required' => 'Tên field không được để trống',
+            'field.unique' => 'Tên field đã tồn tại',
+        ];
+    }
+}
+
+5. API Routes Pattern
+php
+Route::prefix('ten-module')->group(function () {
+    // Danh sách
+    Route::get('/', [Controller::class, 'index']);        // Phân trang
+    Route::get('/all', [Controller::class, 'getAll']);    // Tất cả
+    Route::get('/list', [Controller::class, 'list']);     // Dropdown
+    
+    // Lọc
+    Route::get('/filter-type', [Controller::class, 'getByType']);
+    
+    // Bulk operations
+    Route::post('/bulk-delete', [Controller::class, 'bulkDestroy']);
+    Route::post('/update-order', [Controller::class, 'updateOrder']);
+    
+    // CRUD
+    Route::post('/', [Controller::class, 'store']);
+    Route::get('/{id}', [Controller::class, 'show']);
+    Route::put('/{id}', [Controller::class, 'update']);
+    Route::patch('/{id}/action', [Controller::class, 'action']);
+    Route::delete('/{id}', [Controller::class, 'destroy']);
+});
+
+6. Database Conventions
+Foreign Key Pattern
+id_nhan_vien, id_phong_ban, id_chuc_vu (tiền tố id_ + tên bảng)
+
+Status Field
+id_trang_thai (tham chiếu bảng trang_thai_danh_muc)
+
+Common Fields
+created_at, updated_at (timestamp)
+
+deleted_at (datetime, nullable)
+
+ma_xxx (mã code, unique, nullable)
+
+ten_xxx (tên hiển thị, required)
+
+Common Status Values (bảng trang_thai_danh_muc)
+Module	Mã trạng thái	Tên hiển thị
+nhan_vien	dang_lam	Đang làm
+nhan_vien	nghi_viec	Nghỉ việc
+nghi_phep	cho_duyet	Chờ duyệt
+nghi_phep	da_duyet	Đã duyệt
+menu	hoat_dong	Hoạt động
+
+7. Response Status Codes
+Code	Usage
+200	Success (GET, PUT, DELETE)
+201	Created (POST)
+400	Bad request (logic error)
+404	Not found
+422	Validation error
+500	Server error
+
+8. Error Handling Pattern
+php
+try {
+    // Business logic
+} catch (ModelNotFoundException $e) {
+    return $this->error(
+        message: 'Không tìm thấy dữ liệu',
+        code: 404,
+        errors: "Không tồn tại {$model} với ID: {$id}"
+    );
+} catch (\Illuminate\Validation\ValidationException $e) {
+    return $this->error(
+        message: 'Dữ liệu không hợp lệ',
+        code: 422,
+        errors: $e->errors()
+    );
+} catch (\Exception $e) {
+    return $this->error(
+        message: 'Có lỗi xảy ra',
+        code: 500,
+        errors: config('app.debug') ? $e->getMessage() : null
+    );
+}
+
+9. Naming Conventions
+Type	Convention	Example
+Table	snake_case, tiếng Việt	chuc_vu, nghi_phep
+Model	PascalCase	ChucVu, NghiPhep
+Controller	PascalCase + Controller	ChucVuController
+Request	PascalCase + Request	StoreChucVuRequest
+Method	camelCase	getManagementRoles
+Variable	camelCase	$chucVus
+Foreign key	id_ten_bang	id_nhan_vien
+Scope	scope + PascalCase	scopeQuanLy()
+
+10. Example Complete Method
+php
+/**
+ * Lấy danh sách chức vụ quản lý
+ * GET /api/chuc-vu/management
+ */
+public function getManagementRoles()
+{
+    try {
+        $data = ChucVu::quanLy()->thuTuCap()->get();
+
+        return $this->success($data, 'Lấy danh sách thành công');
+        
+    } catch (\Exception $e) {
+        return $this->error(
+            message: 'Có lỗi xảy ra',
+            code: 500,
+            errors: config('app.debug') ? $e->getMessage() : null
+        );
+    }
+}
